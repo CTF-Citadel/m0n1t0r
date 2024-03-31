@@ -6,6 +6,6 @@ updates:
       interval: "weekly"
       day: "monday"
     groups:
-      cargo:
+      pip:
         patterns:
           - "*"
