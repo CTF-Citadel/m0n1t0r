@@ -40,6 +40,18 @@ class Poisoned(Base):
     def __repr__(self):
         return f'Poisoned(flag={self.flag})'
 
+class Solved(Base):
+
+    __tablename__ = 'solved'
+
+    id = Column(Integer, primary_key=True)
+    team_id = Column(String(length=255))
+    challenge_id = Column(String(length=255))
+    timestamp = Column(Integer)
+
+    def __repr__(self):
+        return f'Solved(id={self.id}, team={self.team}, challenge_id={self.challenge_id}, timestamp={self.timestamp})'
+
 class Flagged(Base):
 
     __tablename__ = 'flagged'

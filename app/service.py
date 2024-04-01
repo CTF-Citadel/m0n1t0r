@@ -1,13 +1,16 @@
 from fastapi import FastAPI, HTTPException
 from model.database import DBSession
-from model.models import Submission, Initiated_Flag, Flagged, Poisoned
-import os, json, socket, time, threading, uuid
-from datetime import timedelta
+from model.models import Submission, Initiated_Flag, Flagged, Poisoned, Solved
+import json, socket, time, threading, uuid, datetime, re
 import uvicorn
+from sqlalchemy import or_, and_
 
 app = FastAPI()
 
 flag_prefix = 'TH'
+
+# Configuration for suspicious amount of challenges being submitted in the same order
+min_order_streak = 5
 
 # Check Flag-Sharing based on poisoned flag being submitted by a team
 def check_poisoned(team, user, challenge, flag, time):
@@ -43,6 +46,13 @@ def same_flag_check(team, user, challenge, flag, time):
                 db.commit()
                 db.refresh(flagged)
 
+                flagged_provider = Flagged(
+                    flag=flag, team_id=initiated_flag.team_id, challenge_id=challenge, flagging_time=time, flag_share_team=team, reason='Provided a flag to another team.'
+                )
+                db.add(flagged_provider)
+                db.commit()
+                db.refresh(flagged_provider)
+
         db.close()
         return
     
@@ -60,6 +70,90 @@ def same_flag_check(team, user, challenge, flag, time):
                 db.refresh(flagged)
 
     db.close()
+
+def check_solving_order(check_team_id, user):
+    global current_streak
+    db = DBSession()
+
+    try:
+        check_team_solves_arr = []
+        check_team_solves = db.query(Solved).filter(Solved.team_id == check_team_id).order_by(Solved.timestamp).all()
+        
+        if check_team_solves:
+            for solve in check_team_solves:
+                check_team_solves_arr.append(solve.challenge_id)
+
+        teams = db.query(Solved.team_id).distinct().filter(Solved.team_id != check_team_id).all()
+
+        if teams:
+            for team_id in teams:
+                solves = db.query(Solved).filter(Solved.team_id == team_id[0]).order_by(Solved.timestamp).all()
+
+                team_solves = []
+
+                for solve in solves:
+                    team_solves.append(solve.challenge_id)
+
+                max_streak = 0 
+                current_streak = 0
+                for start_check_team in range(len(check_team_solves_arr)):
+                    for start_team in range(len(team_solves)):
+                        i = start_check_team
+                        j = start_team
+                        while i < len(check_team_solves_arr) and j < len(team_solves) and check_team_solves_arr[i] == team_solves[j]:
+                            current_streak += 1
+                            i += 1
+                            j += 1
+                        max_streak = max(max_streak, current_streak)
+                        current_streak = 0  # Reset current_streak for new streak
+                
+                if max_streak >= min_order_streak:
+                    
+                    flag_entry_1 = db.query(Flagged).filter(
+                        and_(Flagged.team_id == check_team_id, Flagged.flag_share_team == team_id[0])
+                    ).filter(Flagged.reason.startswith("Streak")).first()
+
+                    flag_entry_2 = db.query(Flagged).filter(
+                        and_(Flagged.team_id == team_id[0], Flagged.flag_share_team == check_team_id)
+                    ).filter(Flagged.reason.startswith("Streak")).first()
+
+                    if flag_entry_1:
+                        existing_streak_number_1 = int(re.search(r'\d+', flag_entry_1.reason).group())
+                        if max_streak > existing_streak_number_1:
+                            flag_entry_1.reason = f"Streak of {max_streak} found"
+                            flag_entry_1.flagging_time = datetime.datetime.now().timestamp()
+
+                    if flag_entry_2:
+                        existing_streak_number_2 = int(re.search(r'\d+', flag_entry_2.reason).group())
+                        if max_streak > existing_streak_number_2:
+                            flag_entry_2.reason = f"Streak of {max_streak} found"
+                            flag_entry_2.flagging_time = datetime.datetime.now().timestamp()
+                        
+                    if not flag_entry_1:
+                        flag_entry_1 = Flagged(
+                            team_id=check_team_id,
+                            flagging_time=datetime.datetime.now().timestamp(),
+                            reason=f"Streak of {max_streak} found",
+                            flag_share_team=team_id[0],
+                        )
+                        db.add(flag_entry_1)
+
+                    if not flag_entry_2:
+                        flag_entry_2 = Flagged(
+                            team_id=team_id[0],
+                            flagging_time=datetime.datetime.now().timestamp(),
+                            reason=f"Streak of {max_streak} found",
+                            flag_share_team=check_team_id,
+                        )
+                        db.add(flag_entry_2)
+                    
+                    db.commit()
+
+    except Exception as e:
+        print(e)
+
+    finally:
+        db.close()
 
 
 # Used to define time-interval in which socket sends flagged accounts
@@ -103,7 +197,7 @@ def handle_client(client_socket):
 # Function to start the socket server
 def start_socket_server():
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_socket.bind(('0.0.0.0', 8888)) 
+    server_socket.bind(('0.0.0.0', 7777)) 
     
     # Listen for incoming connections
     server_socket.listen(5)
@@ -136,6 +230,27 @@ async def submit_flag(flag_submission: dict):
         db.commit()
         db.refresh(db_flag_submission)
 
+        # Check if challenge was solved
+        flag_check = db.query(Initiated_Flag).filter(Initiated_Flag.flag == flag_submission.get('flag')).all()
+        for entry in flag_check:
+            if entry.team_id == flag_submission.get('team_id'):
+                solved = Solved(
+                    team_id=flag_submission.get('team_id'), challenge_id=flag_submission.get('challenge_id'), timestamp=flag_submission.get('submission_time')
+                )
+                db.add(solved)
+                db.commit()
+                db.refresh(solved)
+
+        # Check if submitted flag is poisoned
+        if check_poisoned(flag_submission.get('team_id'), flag_submission.get('user_id'), flag_submission.get('challenge_id'), flag_submission.get('flag'), flag_submission.get('submission_time')) == True:
+            return {"message": "Poisoned flag detected"}
+        
+        # Only check for wrong flag submissions if challenge is
+        if flag_submission.get('static') == False:
+            same_flag_check(flag_submission.get('team_id'), flag_submission.get('user_id'), flag_submission.get('challenge_id'), flag_submission.get('flag'), flag_submission.get('submission_time'))
+
+        return {"message": "Flag submitted successfully"}
+
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to submit flag: {str(e)}")
@@ -143,15 +258,29 @@ async def submit_flag(flag_submission: dict):
     finally:
         db.close()
 
-    # Check if submitted flag is poisoned
-    if check_poisoned(flag_submission.get('team_id'), flag_submission.get('user_id'), flag_submission.get('challenge_id'), flag_submission.get('flag'), flag_submission.get('submission_time')) == True:
-        return {"message": "Poisoned flag detected"}
+@app.post('/solved', description='An endpoint to receive flag submissions of users which solved a challenge.')
+async def solve_flag(flag_submission: dict):
+    db = DBSession()
+    
+    try:
+        solved = Solved(
+            team_id=flag_submission.get('team_id'), challenge_id=flag_submission.get('challenge_id'), timestamp=flag_submission.get('submission_time')
+        )
+        db.add(solved)
+        db.commit()
+        db.refresh(solved)
 
-    # Check if submitted flag can be found in another teams submission/initiation
-    if flag_submission.get('static') == False:
-        same_flag_check(flag_submission.get('team_id'), flag_submission.get('user_id'), flag_submission.get('challenge_id'), flag_submission.get('flag'), flag_submission.get('submission_time'))
+        if check_poisoned(flag_submission.get('team_id'), flag_submission.get('user_id'), flag_submission.get('challenge_id'), flag_submission.get('flag'), flag_submission.get('submission_time')) == True:
+            return {"message": "Poisoned flag detected"}
+    
+        check_solving_order(flag_submission.get('team_id'), flag_submission.get('user_id'))
+    
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to submit solution flag: {str(e)}")
 
-    return {"message": "Flag submitted successfully"}
+    finally:
+        db.close()
 
 # Endpoint to store flag initiations
 @app.post("/initiate_flag", description='An endpoint to receive the intitiated flags from all teams when challenges are deployed.')
@@ -175,35 +304,67 @@ async def flagged():
     db = DBSession()
     
     try:
-        flagged = db.query(Flagged).distinct(Flagged.team_id)
+        flagged = db.query(Flagged.team_id).distinct(Flagged.team_id)
+
+        flagged_entries = []
+
+        for flag in flagged:
+            entries = db.query(Flagged).filter(Flagged.team_id == flag[0]).all()
+
+            flagged_entry = {
+                'team_id': flag[0], 
+            }
+
+            current_suspicion_lvl = 0
+            for i, entry in enumerate(entries):
+
+                match entry.reason:
+                    case 'Flag from other team submitted.':
+                        current_suspicion_lvl = 3
+                        flagged_entry[f'mark_{i}'] = {
+                            'flagged_user': entry.user_id,
+                            'flag_share_team': entry.flag_share_team,
+                            'reason': entry.reason
+                        }
+                    case 'Poisoned flag submitted.':
+                        current_suspicion_lvl = 3
+                        flagged_entry[f'mark_{i}'] = {
+                            'flagged_user': entry.user_id,
+                            'reason': entry.reason
+                        }
+                    case 'Provided a flag to another team.':
+                        current_suspicion_lvl = 3
+                        flagged_entry[f'mark_{i}'] = {
+                            'flag_share_team': entry.flag_share_team,
+                            'reason': entry.reason
+                        }
+                    case _:
+                        streak = int(re.search(r'\d+', entry.reason).group())
+
+                        if streak >= min_order_streak and streak < min_order_streak + 2:
+                            current_suspicion_lvl = 1
+                        elif streak >= min_order_streak + 2 and streak < min_order_streak + 4:
+                            current_suspicion_lvl = 2
+                        elif streak >= min_order_streak + 4:
+                            current_suspicion_lvl = 3
+
+                        flagged_entry[f'mark_{i}'] = {
+                            'flag_share_team': entry.flag_share_team,
+                            'reason': entry.reason
+                        }
+            
+                if 'suspicion_lvl' not in flagged_entry or flagged_entry['suspicion_lvl'] < current_suspicion_lvl:
+                    flagged_entry['suspicion_lvl'] = current_suspicion_lvl
+
+            flagged_entries.append(flagged_entry)
+
+        return flagged_entries
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to extract flagged accounts: {str(e)}")
 
     finally:
         db.close()
-
-    flagged_entries = []
-
-    for entry in flagged:
-        if entry.flag_share_team:
-            entry_data = {
-                'team_id': entry.team_id,
-                'user_id': entry.user_id,
-                'flag_share_team': entry.flag_share_team,
-                'reason': entry.reason
-            }
-        else:
-            entry_data = {
-                'team_id': entry.team_id,
-                'user_id': entry.user_id,
-                'flag_share_team': entry.flag_share_team,
-                'reason': entry.reason
-            }
-
-        flagged_entries.append(entry_data)
-
-    return flagged_entries
 
 
 @app.get('/poisoned', description='Get all poisonous flags from the database.')
@@ -247,6 +408,5 @@ async def gen_poisoned(amount: int):
     finally:
         db.close()
 
-
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=9999)
+    uvicorn.run(app, host="0.0.0.0", port=5555)
