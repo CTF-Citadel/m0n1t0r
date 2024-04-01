@@ -12,6 +12,7 @@ services:
       DB_NAME: ${DB_NAME}
       DB_USER: ${DB_USER}
       DB_PW: ${DB_PW}
+      DB_HOST: ${DB_HOST}
     restart: always
 
   db:
