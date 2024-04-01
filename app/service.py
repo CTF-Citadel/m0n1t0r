@@ -10,7 +10,7 @@ app = FastAPI()
 flag_prefix = 'TH'
 
 # Configuration for suspicious amount of challenges being submitted in the same order
-min_order_streak = 5
+min_order_streak = 6
 
 # Check Flag-Sharing based on poisoned flag being submitted by a team
 def check_poisoned(team, user, challenge, flag, time):
@@ -155,6 +155,72 @@ def check_solving_order(check_team_id, user):
     finally:
         db.close()
 
+def get_flagged():
+    db = DBSession()
+
+    try:
+        flagged = db.query(Flagged.team_id).distinct(Flagged.team_id)
+
+        flagged_entries = []
+
+        for flag in flagged:
+            entries = db.query(Flagged).filter(Flagged.team_id == flag[0]).all()
+
+            flagged_entry = {
+                'team_id': flag[0], 
+            }
+
+            current_suspicion_lvl = 0
+            for i, entry in enumerate(entries):
+
+                match entry.reason:
+                    case 'Flag from other team submitted.':
+                        current_suspicion_lvl = 3
+                        flagged_entry[f'mark_{i}'] = {
+                            'flagged_user': entry.user_id,
+                            'flag_share_team': entry.flag_share_team,
+                            'reason': entry.reason
+                        }
+                    case 'Poisoned flag submitted.':
+                        current_suspicion_lvl = 3
+                        flagged_entry[f'mark_{i}'] = {
+                            'flagged_user': entry.user_id,
+                            'reason': entry.reason
+                        }
+                    case 'Provided a flag to another team.':
+                        current_suspicion_lvl = 3
+                        flagged_entry[f'mark_{i}'] = {
+                            'flag_share_team': entry.flag_share_team,
+                            'reason': entry.reason
+                        }
+                    case _:
+                        streak = int(re.search(r'\d+', entry.reason).group())
+
+                        if streak >= min_order_streak and streak < min_order_streak + 2:
+                            current_suspicion_lvl = 1
+                        elif streak >= min_order_streak + 2 and streak < min_order_streak + 4:
+                            current_suspicion_lvl = 2
+                        elif streak >= min_order_streak + 4:
+                            current_suspicion_lvl = 3
+
+                        flagged_entry[f'mark_{i}'] = {
+                            'flag_share_team': entry.flag_share_team,
+                            'reason': entry.reason
+                        }
+            
+                if 'suspicion_lvl' not in flagged_entry or flagged_entry['suspicion_lvl'] < current_suspicion_lvl:
+                    flagged_entry['suspicion_lvl'] = current_suspicion_lvl
+
+            flagged_entries.append(flagged_entry)
+
+        return flagged_entries
+    
+    except Exception as e:
+        print(e)
+
+    finally:
+        db.close()
+
 
 # Used to define time-interval in which socket sends flagged accounts
 socket_interval = 10
@@ -163,25 +229,8 @@ socket_interval = 10
 def handle_client(client_socket):
     try:
         while True:
-            db = DBSession()
-
-            flagged = db.query(Flagged).distinct(Flagged.team_id)
-
-            db.close()  
-
-            flagged_entries = []
-
-            for entry in flagged:
-                entry_data = {
-                    'team_id': entry.team_id,
-                    'user_id': entry.user_id,
-                    'flag_share_team': entry.flag_share_team
-                }
-
-                flagged_entries.append(entry_data)
-            
-            serialized_entries = json.dumps(flagged_entries)
-            client_socket.send(f'{serialized_entries}\n'.encode())
+            serialized_entries = json.dumps(get_flagged())
+            client_socket.send(f'{serialized_entries}'.encode())
 
             time.sleep(socket_interval)
             
@@ -197,11 +246,10 @@ def handle_client(client_socket):
 # Function to start the socket server
 def start_socket_server():
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_socket.bind(('0.0.0.0', 7777)) 
+    server_socket.bind(('0.0.0.0', 8888)) 
     
     # Listen for incoming connections
     server_socket.listen(5)
-    print("Socket server is listening on port 8888")
 
     while True:
         # Accept incoming connection
@@ -304,61 +352,7 @@ async def flagged():
     db = DBSession()
     
     try:
-        flagged = db.query(Flagged.team_id).distinct(Flagged.team_id)
-
-        flagged_entries = []
-
-        for flag in flagged:
-            entries = db.query(Flagged).filter(Flagged.team_id == flag[0]).all()
-
-            flagged_entry = {
-                'team_id': flag[0], 
-            }
-
-            current_suspicion_lvl = 0
-            for i, entry in enumerate(entries):
-
-                match entry.reason:
-                    case 'Flag from other team submitted.':
-                        current_suspicion_lvl = 3
-                        flagged_entry[f'mark_{i}'] = {
-                            'flagged_user': entry.user_id,
-                            'flag_share_team': entry.flag_share_team,
-                            'reason': entry.reason
-                        }
-                    case 'Poisoned flag submitted.':
-                        current_suspicion_lvl = 3
-                        flagged_entry[f'mark_{i}'] = {
-                            'flagged_user': entry.user_id,
-                            'reason': entry.reason
-                        }
-                    case 'Provided a flag to another team.':
-                        current_suspicion_lvl = 3
-                        flagged_entry[f'mark_{i}'] = {
-                            'flag_share_team': entry.flag_share_team,
-                            'reason': entry.reason
-                        }
-                    case _:
-                        streak = int(re.search(r'\d+', entry.reason).group())
-
-                        if streak >= min_order_streak and streak < min_order_streak + 2:
-                            current_suspicion_lvl = 1
-                        elif streak >= min_order_streak + 2 and streak < min_order_streak + 4:
-                            current_suspicion_lvl = 2
-                        elif streak >= min_order_streak + 4:
-                            current_suspicion_lvl = 3
-
-                        flagged_entry[f'mark_{i}'] = {
-                            'flag_share_team': entry.flag_share_team,
-                            'reason': entry.reason
-                        }
-            
-                if 'suspicion_lvl' not in flagged_entry or flagged_entry['suspicion_lvl'] < current_suspicion_lvl:
-                    flagged_entry['suspicion_lvl'] = current_suspicion_lvl
-
-            flagged_entries.append(flagged_entry)
-
-        return flagged_entries
+        return get_flagged()
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to extract flagged accounts: {str(e)}")
@@ -409,4 +403,4 @@ async def gen_poisoned(amount: int):
         db.close()
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=5555)
+    uvicorn.run(app, host="0.0.0.0", port=9999)

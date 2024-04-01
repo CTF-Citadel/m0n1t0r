@@ -9,18 +9,15 @@ services:
       - "8888:8888"
       - "9999:9999"
     environment:
-      MARIADB_DATABASE: ${DB_NAME}
-      MARIADB_USER: ${DB_USER}
-      MARIADB_PASSWORD: ${DB_PW}
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PW: ${DB_PW}
     restart: always
 
   db:
-    image: mariadb:latest
+    image: postgres:latest
     restart: always
     environment:
-      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PW}
-      MARIADB_DATABASE: ${DB_NAME}
-      MARIADB_USER: ${DB_USER}
-      MARIADB_PASSWORD: ${DB_PW}
-    ports:
-      - "3306:3306"
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PW}
