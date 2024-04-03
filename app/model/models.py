@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean
+from sqlalchemy import Column, Integer, String, Boolean, BigInteger
 from sqlalchemy.ext.declarative import declarative_base
 
 Base = declarative_base()
@@ -11,7 +11,7 @@ class Initiated_Flag(Base):
     team_id = Column(String(length=255))
     flag = Column(String(length=255))
     challenge_id = Column(String(length=255))
-    initiation_time = Column(Integer)
+    initiation_time = Column(BigInteger)
 
     def __repr__(self):
         return f'Initiated_Flag(id={self.id}, team_id={self.team_id}, flag={self.flag}, challenge_id={self.challenge_id}, initiation_time={self.initiation_time})'
@@ -25,7 +25,7 @@ class Submission(Base):
     team_id = Column(String(length=255))
     user_id = Column(String(length=255))
     challenge_id = Column(String(length=255))
-    submission_time = Column(Integer)
+    submission_time = Column(BigInteger)
     static = Column(Boolean)
 
     def __repr__(self):
@@ -47,7 +47,7 @@ class Solved(Base):
     id = Column(Integer, primary_key=True)
     team_id = Column(String(length=255))
     challenge_id = Column(String(length=255))
-    timestamp = Column(Integer)
+    timestamp = Column(BigInteger)
 
     def __repr__(self):
         return f'Solved(id={self.id}, team={self.team}, challenge_id={self.challenge_id}, timestamp={self.timestamp})'
@@ -61,7 +61,7 @@ class Flagged(Base):
     user_id = Column(String(length=255))
     flag = Column(String(length=255))
     challenge_id = Column(String(length=255))
-    flagging_time = Column(Integer)
+    flagging_time = Column(BigInteger)
     flag_share_team = Column(String(length=255))
     reason = Column(String(length=255))
 

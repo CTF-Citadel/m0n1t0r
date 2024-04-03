@@ -16,60 +16,63 @@ min_order_streak = 6
 def check_poisoned(team, user, challenge, flag, time):
     db = DBSession()
 
-    # Check if team submitted a poisoned flag
-    poisoned_flag_check = db.query(Poisoned).filter(Poisoned.flag == flag).all()
+    try:
+        # Check if team submitted a poisoned flag
+        poisoned_flag_check = db.query(Poisoned).filter(Poisoned.flag == flag).all()
 
-    if poisoned_flag_check:
-        flagged = Flagged(
-            flag=flag, team_id=team, user_id=user, challenge_id=challenge, flagging_time=time, reason='Poisoned flag submitted.'
-        )
-        db.add(flagged)
-        db.commit()
-        db.refresh(flagged)
+        if poisoned_flag_check:
+            flagged = Flagged(
+                flag=flag, team_id=team, user_id=user, challenge_id=challenge, flagging_time=time, reason='Poisoned flag submitted.'
+            )
+            db.add(flagged)
+            db.commit()
+            db.refresh(flagged)
+            return True
+        
+    finally:
         db.close()
-        return True
 
 # Check Flag-Sharing based on flag being submitted from opposite team
 def same_flag_check(team, user, challenge, flag, time):
     db = DBSession()
 
-    # Check if team submitted flag from opposite team (from flag initiation)
-    initiated_flags_check = db.query(Initiated_Flag).filter(Initiated_Flag.flag == flag).all()
+    try:
+        # Check if team submitted flag from opposite team (from flag initiation)
+        initiated_flags_check = db.query(Initiated_Flag).filter(Initiated_Flag.flag == flag).all()
 
-    if initiated_flags_check:
-        for initiated_flag in initiated_flags_check:
-            if initiated_flag.team_id != team:
-                flagged = Flagged(
-                    flag=flag, team_id=team, user_id=user, challenge_id=challenge, flagging_time=time, flag_share_team=initiated_flag.team_id, reason='Flag from other team submitted.'
-                )
-                db.add(flagged)
-                db.commit()
-                db.refresh(flagged)
+        if initiated_flags_check:
+            for initiated_flag in initiated_flags_check:
+                if initiated_flag.team_id != team:
+                    flagged = Flagged(
+                        flag=flag, team_id=team, user_id=user, challenge_id=challenge, flagging_time=time, flag_share_team=initiated_flag.team_id, reason='Flag from other team submitted.'
+                    )
+                    db.add(flagged)
+                    db.commit()
+                    db.refresh(flagged)
 
-                flagged_provider = Flagged(
-                    flag=flag, team_id=initiated_flag.team_id, challenge_id=challenge, flagging_time=time, flag_share_team=team, reason='Provided a flag to another team.'
-                )
-                db.add(flagged_provider)
-                db.commit()
-                db.refresh(flagged_provider)
+                    flagged_provider = Flagged(
+                        flag=flag, team_id=initiated_flag.team_id, challenge_id=challenge, flagging_time=time, flag_share_team=team, reason='Provided a flag to another team.'
+                    )
+                    db.add(flagged_provider)
+                    db.commit()
+                    db.refresh(flagged_provider)
+            return
+        
+        # Check if team submitted flag from opposite team (from flag submission)
+        submitted_flags_check = db.query(Submission).filter(Submission.flag == flag).all()
 
+        if submitted_flags_check:
+            for submitted_flag in submitted_flags_check:
+                if submitted_flag.team_id != team:
+                    flagged = Flagged(
+                        flag=flag, team_id=team, user_id=user, challenge_id=challenge, flagging_time=time, reason='Flag from other team submitted.'
+                    )
+                    db.add(flagged)
+                    db.commit()
+                    db.refresh(flagged)
+
+    finally:
         db.close()
-        return
-    
-    # Check if team submitted flag from opposite team (from flag submission)
-    submitted_flags_check = db.query(Submission).filter(Submission.flag == flag).all()
-
-    if submitted_flags_check:
-        for submitted_flag in submitted_flags_check:
-            if submitted_flag.team_id != team:
-                flagged = Flagged(
-                    flag=flag, team_id=team, user_id=user, challenge_id=challenge, flagging_time=time, reason='Flag from other team submitted.'
-                )
-                db.add(flagged)
-                db.commit()
-                db.refresh(flagged)
-
-    db.close()
 
 def check_solving_order(check_team_id, user):
     global current_streak
