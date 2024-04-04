@@ -171,6 +171,7 @@ def get_flagged():
 
             flagged_entry = {
                 'team_id': flag[0], 
+                'marks': []
             }
 
             current_suspicion_lvl = 0
@@ -179,23 +180,23 @@ def get_flagged():
                 match entry.reason:
                     case 'Flag from other team submitted.':
                         current_suspicion_lvl = 3
-                        flagged_entry[f'mark_{i}'] = {
+                        flagged_entry['marks'].append({
                             'flagged_user': entry.user_id,
                             'flag_share_team': entry.flag_share_team,
                             'reason': entry.reason
-                        }
+                        })
                     case 'Poisoned flag submitted.':
                         current_suspicion_lvl = 3
-                        flagged_entry[f'mark_{i}'] = {
+                        flagged_entry['marks'].append({
                             'flagged_user': entry.user_id,
                             'reason': entry.reason
-                        }
+                        })
                     case 'Provided a flag to another team.':
                         current_suspicion_lvl = 3
-                        flagged_entry[f'mark_{i}'] = {
+                        flagged_entry['marks'].append({
                             'flag_share_team': entry.flag_share_team,
                             'reason': entry.reason
-                        }
+                        })
                     case _:
                         streak = int(re.search(r'\d+', entry.reason).group())
 
@@ -206,10 +207,10 @@ def get_flagged():
                         elif streak >= min_order_streak + 4:
                             current_suspicion_lvl = 3
 
-                        flagged_entry[f'mark_{i}'] = {
+                        flagged_entry[f'marks'].append({
                             'flag_share_team': entry.flag_share_team,
                             'reason': entry.reason
-                        }
+                        })
             
                 if 'suspicion_lvl' not in flagged_entry or flagged_entry['suspicion_lvl'] < current_suspicion_lvl:
                     flagged_entry['suspicion_lvl'] = current_suspicion_lvl
