@@ -59,7 +59,7 @@ def same_flag_check(team, user, challenge, flag, time):
             return
         
         # Check if team submitted flag from opposite team (from flag submission)
-        submitted_flags_check = db.query(Submission).filter(Submission.flag == flag).all()
+        submitted_flags_check = db.query(Submission).filter(Submission.flag == flag).filter(Submission.static == False).all()
 
         if submitted_flags_check:
             for submitted_flag in submitted_flags_check:
