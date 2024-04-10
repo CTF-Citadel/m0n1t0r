@@ -382,10 +382,19 @@ async def pass_poisoned(flags: list[str]):
     db = DBSession()
 
     try:
+        num_added_flags = 0
         for flag in flags:
-            db.add(Poisoned(flag=flag))
+            existing_flag = db.query(Poisoned).filter(Poisoned.flag == flag).first()
+            if existing_flag is None:
+                db.add(Poisoned(flag=flag))
+                num_added_flags += 1
+
         db.commit()
-        return {"message": f"{len(flags)} poisoned flags marked successfully."}
+
+        if num_added_flags == 1:
+            return {"message": f"{num_added_flags} poisoned flag marked successfully."}
+        
+        return {"message": f"{num_added_flags} poisoned flags marked successfully."}
     
     except Exception as e:
         db.rollback()
