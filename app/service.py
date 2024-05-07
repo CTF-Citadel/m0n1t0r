@@ -57,19 +57,6 @@ def same_flag_check(team, user, challenge, flag, time):
                     db.commit()
                     db.refresh(flagged_provider)
             return
-        
-        # Check if team submitted flag from opposite team (from flag submission)
-        submitted_flags_check = db.query(Submission).filter(Submission.flag == flag).filter(Submission.static == False).all()
-
-        if submitted_flags_check:
-            for submitted_flag in submitted_flags_check:
-                if submitted_flag.team_id != team:
-                    flagged = Flagged(
-                        flag=flag, team_id=team, user_id=user, challenge_id=challenge, flagging_time=time, reason='Flag from other team submitted.'
-                    )
-                    db.add(flagged)
-                    db.commit()
-                    db.refresh(flagged)
 
     finally:
         db.close()
