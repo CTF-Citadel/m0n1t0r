@@ -1,5 +1,5 @@
-fastapi==0.110.2
+fastapi==0.111.0
 uvicorn==0.29.0
-sqlalchemy==2.0.29
+sqlalchemy==2.0.30
 pymysql==1.1.0
 psycopg2-binary==2.9.9
