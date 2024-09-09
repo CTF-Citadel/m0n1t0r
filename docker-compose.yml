@@ -8,17 +8,25 @@ services:
     ports:
       - "8888:8888"
       - "9999:9999"
+    depends_on:
+      db:
+        condition: service_healthy
     environment:
       DB_NAME: ${DB_NAME}
       DB_USER: ${DB_USER}
       DB_PW: ${DB_PW}
-      DB_HOST: ${DB_HOST}
+      DB_HOST: db
     restart: always
 
   db:
-    image: postgres:latest
+    image: docker.io/library/postgres:latest
     restart: always
     environment:
       POSTGRES_DB: ${DB_NAME}
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PW}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d ${POSTGRES_DB}"]
+      interval: 10s
+      retries: 5
+      timeout: 10s
