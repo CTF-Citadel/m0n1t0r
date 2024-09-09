@@ -1,4 +1,4 @@
-FROM python:latest
+FROM docker.io/library/python:latest
 
 WORKDIR /app
 
